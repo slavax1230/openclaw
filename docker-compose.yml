@@ -1,78 +1,60 @@
 services:
   openclaw:
-    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    build:
+      context: .
+      args:
+        - OPENCLAW_BETA=${OPENCLAW_BETA:-false}
     restart: on-failure:10
-
     ulimits:
       nofile:
         soft: 65535
         hard: 65535
 
     environment:
-      # Networking / runtime
+      DOCKER_HOST: tcp://docker-proxy:2375
+
+      PORT: 18789
       NODE_ENV: production
       HOME: /data
       TERM: xterm-256color
 
-      # Tell OpenClaw how to bind/port
-      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
+      OPENCLAW_GATEWAY_BIND: lan
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
-      PORT: 18789
 
-      # Persistence paths (single source of truth)
       OPENCLAW_STATE_DIR: /data/.openclaw
       OPENCLAW_WORKSPACE: /data/openclaw-workspace
 
-      # If OpenClaw needs Docker access (recommended via proxy)
-      DOCKER_HOST: tcp://docker-proxy:2375
-
-      # Your existing tokens/keys
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
-
-      # Optional: if you use them
+      # חובה לפחות ספק AI אחד
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
 
-      # If behind proxy/traefik
-      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:-*}
+      # Coolify placeholders ל-URL/ניתוב
+      SERVICE_URL_OPENCLAW_18789: null
+      BASE_URL: "https://${SERVICE_FQDN_OPENCLAW}"
+      PUBLIC_URL: "https://${SERVICE_FQDN_OPENCLAW}"
 
-      # Optional stability knobs
-      CHOKIDAR_USEPOLLING: "true"
+      GATEWAY_TRUSTED_PROXIES: "*"
+      OPENCLAW_AUTO_BOOTSTRAP: "1"
+      OPENCLAW_PRINT_ACCESS: "1"
 
     volumes:
       - openclaw-data:/data
 
-    # Important for Coolify/Traefik: internal port only
-    expose:
-      - "18789"
-
     depends_on:
       - docker-proxy
 
-    # If your image already starts gateway by default, remove command.
-    # Otherwise keep it explicit:
-    command:
-      [
-        "node",
-        "dist/index.js",
-        "gateway",
-        "--bind",
-        "${OPENCLAW_GATEWAY_BIND:-lan}",
-        "--port",
-        "18789"
-      ]
+    command: ["bash", "/app/scripts/bootstrap.sh"]
 
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:18789/"]
+      test: ["CMD", "curl", "-f", "http://localhost:18789/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 120s
+
+    expose:
+      - "18789"
 
   docker-proxy:
     image: tecnativa/docker-socket-proxy:latest
