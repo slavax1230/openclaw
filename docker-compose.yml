@@ -1,21 +1,61 @@
 services:
-  openclaw-gateway:
+  openclaw:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
+    restart: on-failure:10
+
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
     environment:
-      HOME: /home/node
+      # Networking / runtime
+      NODE_ENV: production
+      HOME: /data
       TERM: xterm-256color
+
+      # Tell OpenClaw how to bind/port
+      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      PORT: 18789
+
+      # Persistence paths (single source of truth)
+      OPENCLAW_STATE_DIR: /data/.openclaw
+      OPENCLAW_WORKSPACE: /data/openclaw-workspace
+
+      # If OpenClaw needs Docker access (recommended via proxy)
+      DOCKER_HOST: tcp://docker-proxy:2375
+
+      # Your existing tokens/keys
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+
+      # Optional: if you use them
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+      # If behind proxy/traefik
+      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:-*}
+
+      # Optional stability knobs
+      CHOKIDAR_USEPOLLING: "true"
+
     volumes:
-      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
-    ports:
-      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
-    init: true
-    restart: unless-stopped
+      - openclaw-data:/data
+
+    # Important for Coolify/Traefik: internal port only
+    expose:
+      - "18789"
+
+    depends_on:
+      - docker-proxy
+
+    # If your image already starts gateway by default, remove command.
+    # Otherwise keep it explicit:
     command:
       [
         "node",
@@ -24,23 +64,30 @@ services:
         "--bind",
         "${OPENCLAW_GATEWAY_BIND:-lan}",
         "--port",
-        "18789",
+        "18789"
       ]
 
-  openclaw-cli:
-    image: ${OPENCLAW_IMAGE:-openclaw:local}
-    environment:
-      HOME: /home/node
-      TERM: xterm-256color
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      BROWSER: echo
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:18789/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
     volumes:
-      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
-    stdin_open: true
-    tty: true
-    init: true
-    entrypoint: ["node", "dist/index.js"]
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      POST: 1
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      INFO: 1
+      VERSION: 1
+      EXEC: 1
+      EVENTS: 1
+
+volumes:
+  openclaw-data:
